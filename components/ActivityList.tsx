@@ -8,26 +8,37 @@ type EventRow = {
   type: string;
   startTime: string;
   endTime: string | null;
+  note: string | null; // <--- ADDED THIS FIELD
   data: string;
 };
 
-// Helper to format date for the HTML Input (requires YYYY-MM-DDThh:mm format)
+// HELPER 1: Input Format
 const toInputFormat = (dateStr: string) => {
   const date = new Date(dateStr);
-  // Adjust to local timezone roughly for the input
   const offset = date.getTimezoneOffset() * 60000;
   const localISOTime = (new Date(date.getTime() - offset)).toISOString().slice(0, 16);
   return localISOTime;
 };
 
-// Helper for display time
+// HELPER 2: Display Time (European 24h)
 const formatDisplayTime = (dateStr: string) => {
-  return new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric', minute: 'numeric', hour12: true
-  }).format(new Date(dateStr));
+  return new Date(dateStr).toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
 };
 
-// Styles helper
+// HELPER 3: Duration
+const getDurationString = (start: string, end: string) => {
+  const diffMs = new Date(end).getTime() - new Date(start).getTime();
+  const totalMins = Math.floor(diffMs / 60000);
+  const hours = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+};
+
 const getEventStyle = (type: string) => {
   switch (type) {
     case 'SLEEP': return { icon: '😴', bg: 'bg-blue-100 dark:bg-blue-900' };
@@ -42,53 +53,33 @@ const getEventStyle = (type: string) => {
 export default function ActivityList({ initialEvents }: { initialEvents: EventRow[] }) {
   const router = useRouter();
   const [selectedEvent, setSelectedEvent] = useState<EventRow | null>(null);
-  
-  // Edit Form States
   const [editTime, setEditTime] = useState('');
-  const [editValue, setEditValue] = useState(''); // Used for Weight/Amount
+  const [editValue, setEditValue] = useState(''); 
 
-  // Open Modal
   const handleRowClick = (event: EventRow) => {
     setSelectedEvent(event);
     setEditTime(toInputFormat(event.startTime));
-    
-    // Parse data to see if there is a value to edit (like weight)
     const dataObj = JSON.parse(event.data || '{}');
     if (dataObj.amount) setEditValue(dataObj.amount);
     else setEditValue('');
   };
 
-  // DELETE Action
   const handleDelete = async () => {
     if (!selectedEvent) return;
     if (!confirm("Are you sure you want to delete this?")) return;
-
-    await fetch('/api/events', {
-      method: 'DELETE',
-      body: JSON.stringify({ id: selectedEvent.id }),
-    });
-
+    await fetch('/api/events', { method: 'DELETE', body: JSON.stringify({ id: selectedEvent.id }) });
     setSelectedEvent(null);
-    router.refresh(); // Refresh the list
+    router.refresh(); 
   };
 
-  // SAVE (Update) Action
   const handleSave = async () => {
     if (!selectedEvent) return;
-
-    // Reconstruct the data object
     const currentData = JSON.parse(selectedEvent.data || '{}');
-    if (editValue) currentData.amount = editValue; // Update amount if it exists
-
+    if (editValue) currentData.amount = editValue; 
     await fetch('/api/events', {
       method: 'PATCH',
-      body: JSON.stringify({
-        id: selectedEvent.id,
-        startTime: editTime, // Send the new time
-        data: currentData    // Send the new data
-      }),
+      body: JSON.stringify({ id: selectedEvent.id, startTime: editTime, data: currentData }),
     });
-
     setSelectedEvent(null);
     router.refresh();
   };
@@ -103,39 +94,72 @@ export default function ActivityList({ initialEvents }: { initialEvents: EventRo
             const style = getEventStyle(event.type);
             const eventData = JSON.parse(event.data || '{}');
             
-            // Subtext Logic
-            let subText = "Logged";
+            // --- DECIDE THE SUB-TEXT ---
+            let subText = "Logged"; 
+            
+            // 1. If Sleep: empty
+            if (event.type === 'SLEEP') subText = ""; 
+            
+            // 2. If Weight: show value
             if (event.type === 'WEIGHT' && eventData.amount) subText = `${eventData.amount} kg`;
             
-            // Time Logic
+            // 3. If NOTE: Show the actual note text!
+            // 'truncate' class in CSS will cut it off with "..." if it's too long
+            if (event.type === 'NOTE' && event.note) {
+                subText = event.note; 
+            }
+            
+            // --- TIME AND DURATION ---
             let timeDisplay = formatDisplayTime(event.startTime);
+            let durationBadge = null;
+
             if (event.type === 'SLEEP') {
-              timeDisplay = event.endTime 
-                ? `${formatDisplayTime(event.startTime)} - ${formatDisplayTime(event.endTime)}` 
-                : "💤 Sleeping...";
+              if (event.endTime) {
+                timeDisplay = `${formatDisplayTime(event.startTime)} - ${formatDisplayTime(event.endTime)}`;
+                const duration = getDurationString(event.startTime, event.endTime);
+                durationBadge = (
+                  <span className="ml-2 px-2 py-0.5 rounded text-xs font-bold bg-indigo-50 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-200">
+                    {duration}
+                  </span>
+                );
+              } else {
+                timeDisplay = `💤 Sleeping since ${formatDisplayTime(event.startTime)}`;
+              }
             }
 
             return (
               <div 
                 key={event.id} 
-                onClick={() => handleRowClick(event)} // CLICK HANDLER
+                onClick={() => handleRowClick(event)} 
                 className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 flex justify-between items-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
               >
-                <div className="flex items-center gap-3">
-                  <span className={`${style.bg} p-2 rounded-full text-lg`}>{style.icon}</span>
-                  <div>
-                    <p className="font-medium capitalize">{event.type.toLowerCase()}</p>
-                    <p className="text-xs text-gray-500">{subText}</p>
+                <div className="flex items-center gap-3 overflow-hidden"> 
+                  {/* Added overflow-hidden above to help with long notes */}
+                  
+                  <span className={`${style.bg} p-2 rounded-full text-lg flex-shrink-0`}>{style.icon}</span>
+                  
+                  <div className="min-w-0"> {/* min-w-0 ensures text truncation works */}
+                    <p className="font-medium capitalize flex items-center whitespace-nowrap">
+                      {event.type.toLowerCase()}
+                      {durationBadge}
+                    </p>
+                    
+                    {/* Render the subText (Note content) with truncation */}
+                    {subText && (
+                        <p className="text-xs text-gray-500 truncate pr-2">
+                            {subText}
+                        </p>
+                    )}
                   </div>
                 </div>
-                <span className="text-sm text-gray-400">{timeDisplay}</span>
+                <span className="text-sm text-gray-400 whitespace-nowrap flex-shrink-0">{timeDisplay}</span>
               </div>
             );
           })
         )}
       </div>
 
-      {/* --- EDIT MODAL --- */}
+      {/* --- EDIT MODAL (Unchanged) --- */}
       {selectedEvent && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-xl w-full max-w-sm">
@@ -143,7 +167,6 @@ export default function ActivityList({ initialEvents }: { initialEvents: EventRo
               Edit {selectedEvent.type.toLowerCase()}
             </h3>
 
-            {/* Time Input */}
             <label className="block text-sm text-gray-500 mb-1">Time</label>
             <input 
               type="datetime-local"
@@ -152,7 +175,6 @@ export default function ActivityList({ initialEvents }: { initialEvents: EventRo
               className="w-full p-3 mb-4 border border-gray-300 rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
 
-            {/* Value Input (Only for Weight/Events with 'amount') */}
             {(selectedEvent.type === 'WEIGHT' || editValue !== '') && (
               <>
                 <label className="block text-sm text-gray-500 mb-1">Value (kg/ml)</label>

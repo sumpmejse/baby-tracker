@@ -69,17 +69,37 @@ export async function POST(request: Request) {
 
 // GET endpoint (Used by the Sleep button to check status)
 export async function GET() {
+  // 1. Check Sleep Status
   const activeSleep = db.prepare(`
     SELECT id FROM events 
     WHERE type = 'SLEEP' AND endTime IS NULL 
     LIMIT 1
   `).get();
 
-  return NextResponse.json({ isSleeping: !!activeSleep });
-}
+  // 2. Check Medicine Status (Resetting at 6 AM)
+  const now = new Date();
+  const RESET_HOUR = 6; // <-- Change this number later to change frequency/time
+  
+  // Calculate the "Start of the current period"
+  // If it is currently 5 AM, the "day" started yesterday at 6 AM.
+  // If it is currently 7 AM, the "day" started today at 6 AM.
+  let cutoffDate = new Date(now);
+  if (now.getHours() < RESET_HOUR) {
+    cutoffDate.setDate(now.getDate() - 1); // Go back one day
+  }
+  cutoffDate.setHours(RESET_HOUR, 0, 0, 0);
 
-// app/api/events/route.ts
-// ... (Keep existing imports, POST, and GET exactly as they are) ...
+  const medicineLog = db.prepare(`
+    SELECT id FROM events 
+    WHERE type = 'MEDICINE' AND startTime >= ? 
+    LIMIT 1
+  `).get(cutoffDate.toISOString());
+
+  return NextResponse.json({ 
+    isSleeping: !!activeSleep,
+    medicineGiven: !!medicineLog 
+  });
+}
 
 // 3. DELETE: Remove an event
 export async function DELETE(request: Request) {
