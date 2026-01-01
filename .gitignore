@@ -41,4 +41,9 @@ yarn-error.log*
 next-env.d.ts
 
 #database
-*db.*
+*.db
+*.db-wal
+*.db-shm
+baby-tracker.db
+baby-tracker.db-shm
+baby-tracker.db-wal
