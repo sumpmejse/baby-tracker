@@ -77,3 +77,48 @@ export async function GET() {
 
   return NextResponse.json({ isSleeping: !!activeSleep });
 }
+
+// app/api/events/route.ts
+// ... (Keep existing imports, POST, and GET exactly as they are) ...
+
+// 3. DELETE: Remove an event
+export async function DELETE(request: Request) {
+  try {
+    const { id } = await request.json();
+
+    if (!id) return new NextResponse("Missing ID", { status: 400 });
+
+    const stmt = db.prepare('DELETE FROM events WHERE id = ?');
+    stmt.run(id);
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return new NextResponse("Error deleting", { status: 500 });
+  }
+}
+
+// 4. PATCH: Update an event (Edit time, value, etc.)
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json();
+    const { id, startTime, data } = body;
+
+    // We allow updating Start Time and Data (e.g. weight amount)
+    const stmt = db.prepare(`
+      UPDATE events 
+      SET startTime = ?, data = ?
+      WHERE id = ?
+    `);
+
+    stmt.run(
+      new Date(startTime).toISOString(), 
+      JSON.stringify(data || {}), 
+      id
+    );
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return new NextResponse("Error updating", { status: 500 });
+  }
+}
